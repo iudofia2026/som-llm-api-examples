@@ -24,6 +24,22 @@ export SOM_LLM_MODEL=Qwen3.5-122B-A10B-FP8
 
 Do not commit API keys, prompts containing sensitive data, or model outputs from private workloads.
 
+## Agent CLI setup
+
+See [`docs/agent-cli-tutorial.md`](docs/agent-cli-tutorial.md) for Pi, Claude Code, and Codex status.
+
+Short version:
+
+- Pi works directly via OpenAI Chat Completions.
+- Claude Code works through the Anthropic-compatible endpoint.
+- Codex is not directly supported yet because current Codex custom providers require `/v1/responses`.
+
+Use [`scripts/som-current-model.py`](scripts/som-current-model.py) to avoid hard-coding model ids:
+
+```sh
+export SOM_LLM_MODEL="$(scripts/som-current-model.py --purpose coding)"
+```
+
 ## Examples
 
 | Example | Shows |
