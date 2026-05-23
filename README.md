@@ -22,7 +22,7 @@ export SOM_LLM_BASE_URL=https://api.som.chat/v1
 export SOM_LLM_MODEL=Qwen3.5-122B-A10B-FP8
 ```
 
-Do not commit API keys, prompts containing sensitive data, or model outputs from private workloads.
+Do not commit API keys, prompts containing sensitive data, or model outputs from private workloads. Also **note that our hosted models change often** and the code here might not work if you just copy/paste. 
 
 ## Agent CLI setup
 
