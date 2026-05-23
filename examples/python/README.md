@@ -21,6 +21,7 @@ Run any example directly. The files are intentionally standalone, so you can cop
 ./04_tag.py
 ./05_extract_json.py
 ./06_thinking.py
+./07_pydanticai_agents.py
 ```
 
 ## What each example shows
@@ -31,6 +32,7 @@ Run any example directly. The files are intentionally standalone, so you can cop
 - `04_tag.py` — multi-label tagging with `json_object`.
 - `05_extract_json.py` — typed JSON extraction validated by Pydantic.
 - `06_thinking.py` — enabling Qwen thinking for multi-step reasoning.
+- `07_pydanticai_agents.py` — a two-agent PydanticAI workflow with local tool calls.
 
 For short classification/extraction jobs, the examples disable thinking:
 
@@ -39,3 +41,12 @@ extra_body={"chat_template_kwargs": {"enable_thinking": False}}
 ```
 
 For harder reasoning, turn thinking on and give the model enough `max_tokens` for reasoning plus the final answer.
+
+## Agent workflow example
+
+`07_pydanticai_agents.py` shows a tiny two-agent workflow:
+
+1. an intake agent calls a local dataset-catalog tool and writes a structured project brief;
+2. a reviewer agent calls a local row-count estimator and writes a feasibility note.
+
+It is still a single standalone file. Copy it when you want a starting point for PydanticAI agents, local tools, and structured outputs against the SOM OpenAI-compatible endpoint.

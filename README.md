@@ -35,6 +35,7 @@ cd examples/python
 ./04_tag.py
 ./05_extract_json.py
 ./06_thinking.py
+./07_pydanticai_agents.py
 ```
 
 Examples included:
@@ -47,6 +48,7 @@ Examples included:
 | `04_tag.py` | multi-label tagging |
 | `05_extract_json.py` | JSON extraction + Pydantic validation |
 | `06_thinking.py` | Qwen thinking mode for harder reasoning |
+| `07_pydanticai_agents.py` | two-agent PydanticAI workflow with local tools |
 
 ## Agent CLI setup
 
