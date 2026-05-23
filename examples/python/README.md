@@ -12,7 +12,7 @@ Optional: pin a model. If omitted, the examples ask `/v1/models` and use the fir
 export SOM_LLM_MODEL=Qwen3.5-122B-A10B-FP8
 ```
 
-Run any example directly:
+Run any example directly. The files are intentionally standalone, so you can copy one script into your own project without importing a local helper package:
 
 ```sh
 ./01_chat.py

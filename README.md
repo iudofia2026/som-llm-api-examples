@@ -15,7 +15,7 @@ Get an API key from the SOM LLM API dashboard, then:
 export SOM_LLM_KEY=sk-som-...
 ```
 
-The hosted model changes over time. The Python examples ask `/v1/models` and choose an advertised model automatically. If you want to pin one:
+The hosted model changes over time. Each Python example is standalone: it creates an OpenAI client, asks `/v1/models`, and chooses an advertised model automatically. If you want to pin one:
 
 ```sh
 export SOM_LLM_MODEL=Qwen3.5-122B-A10B-FP8

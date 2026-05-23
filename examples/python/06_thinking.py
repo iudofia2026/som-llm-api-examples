@@ -6,12 +6,32 @@
 
 """Use thinking mode for a multi-step reasoning question."""
 
-from som_llm import client, current_model
+import os
 
-llm = client()
-model = current_model(llm)
+from openai import OpenAI
 
-response = llm.chat.completions.create(
+BASE_URL = os.environ.get("SOM_LLM_BASE_URL", "https://api.som.chat/v1")
+
+
+def current_model(client: OpenAI) -> str:
+    """Return SOM_LLM_MODEL, or choose the first model from /v1/models."""
+    if model := os.environ.get("SOM_LLM_MODEL"):
+        return model
+
+    models = [model.id for model in client.models.list().data]
+    if not models:
+        raise SystemExit("No models returned from /v1/models")
+    return models[0]
+
+
+api_key = os.environ.get("SOM_LLM_KEY")
+if not api_key:
+    raise SystemExit("Set SOM_LLM_KEY first")
+
+client = OpenAI(api_key=api_key, base_url=BASE_URL)
+model = current_model(client)
+
+response = client.chat.completions.create(
     model=model,
     messages=[
         {
