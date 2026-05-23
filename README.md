@@ -1,28 +1,52 @@
 # SOM LLM API examples
 
-Runnable examples for the Yale SOM HPC LLM API at `https://api.som.chat`.
+Human-friendly examples for the Yale SOM LLM API at `https://api.som.chat`.
 
-The service exposes:
+The API supports:
 
-- an OpenAI-compatible API at `https://api.som.chat/v1`
-- an Anthropic-compatible Messages API at `https://api.som.chat/v1/messages`
+- OpenAI-compatible chat completions at `https://api.som.chat/v1`
+- Anthropic-compatible Messages at `https://api.som.chat/v1/messages`
 
 ## Setup
 
-Use an API key from your SOM LLM API dashboard:
+Get an API key from the SOM LLM API dashboard, then:
 
 ```sh
 export SOM_LLM_KEY=sk-som-...
 ```
 
-Optional environment variables:
+The hosted model changes over time. The Python examples ask `/v1/models` and choose an advertised model automatically. If you want to pin one:
 
 ```sh
-export SOM_LLM_BASE_URL=https://api.som.chat/v1
 export SOM_LLM_MODEL=Qwen3.5-122B-A10B-FP8
 ```
 
-Do not commit API keys, prompts containing sensitive data, or model outputs from private workloads. Also **note that our hosted models change often** and the code here might not work if you just copy/paste. 
+Do not commit API keys, private prompts, or model outputs from sensitive work.
+
+## Python examples
+
+Start here: [`examples/python`](examples/python/)
+
+```sh
+cd examples/python
+./01_chat.py
+./02_stream.py
+./03_classify.py
+./04_tag.py
+./05_extract_json.py
+./06_thinking.py
+```
+
+Examples included:
+
+| File | Shows |
+|---|---|
+| `01_chat.py` | basic chat completion |
+| `02_stream.py` | streaming tokens |
+| `03_classify.py` | single-label classification |
+| `04_tag.py` | multi-label tagging |
+| `05_extract_json.py` | JSON extraction + Pydantic validation |
+| `06_thinking.py` | Qwen thinking mode for harder reasoning |
 
 ## Agent CLI setup
 
@@ -34,32 +58,10 @@ Short version:
 - Claude Code works through the Anthropic-compatible endpoint.
 - Codex is not directly supported yet because current Codex custom providers require `/v1/responses`.
 
-Use [`scripts/som-current-model.py`](scripts/som-current-model.py) to avoid hard-coding model ids:
+Use [`scripts/som-current-model.py`](scripts/som-current-model.py) if you want the current advertised model in shell scripts:
 
 ```sh
 export SOM_LLM_MODEL="$(scripts/som-current-model.py --purpose coding)"
-```
-
-## Examples
-
-| Example | Shows |
-|---|---|
-| [`examples/openai-chat`](examples/openai-chat/) | Basic OpenAI-compatible chat call |
-| [`examples/anthropic-messages`](examples/anthropic-messages/) | Basic Anthropic-compatible Messages call |
-| [`examples/efficient-client`](examples/efficient-client/) | Bounded concurrency, retries, and HTTP client reuse |
-| [`examples/json-object-extraction`](examples/json-object-extraction/) | JSON object extraction, two-pass extraction, bounded strict JSON Schema |
-
-Every example has an offline `--self-test` mode that does not call the API:
-
-```sh
-scripts/run-self-tests.sh
-```
-
-Run a live example with:
-
-```sh
-examples/openai-chat/example.py --live
-examples/json-object-extraction/example.py --live
 ```
 
 ## Structured output guidance
@@ -73,7 +75,3 @@ For extraction/classification:
 - Consider two passes for rich documents: free-text notes first, then JSON conversion.
 - Use strict JSON Schema only when every array/string is bounded with `maxItems`, `maxLength`, enums, or numeric bounds.
 - Validate responses client-side when correctness matters.
-
-## Live-test caveat
-
-Live tests require network access to `api.som.chat` and a valid `SOM_LLM_KEY`. Offline self-tests are the default CI gate.
