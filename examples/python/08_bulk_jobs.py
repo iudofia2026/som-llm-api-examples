@@ -22,9 +22,10 @@ import os
 import random
 import time
 from collections.abc import Iterable, Iterator, Mapping
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from queue import Queue
+from threading import Thread
 
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
@@ -39,6 +40,13 @@ RETRYABLE_STATUS_CODES = {429, 503, 529}
 class Job:
     job_id: str
     text: str
+
+
+@dataclass(frozen=True)
+class JobResult:
+    job_id: str
+    label: str | None = None
+    error: BaseException | None = None
 
 
 SAMPLE_JOBS = [
@@ -186,49 +194,99 @@ def run_one_job_with_retries(client: OpenAI, model_name: str, job: Job) -> tuple
     raise AssertionError("unreachable")
 
 
-def process_jobs(
-    client: OpenAI,
+def worker_loop(
+    api_key: str,
     model_name: str,
-    jobs: Iterable[Job],
-    num_workers: int,
-) -> int:
-    """Process jobs from an iterator while keeping only a few in flight.
+    job_queue: Queue[Job | None],
+    result_queue: Queue[JobResult | None],
+) -> None:
+    """Process jobs until a None sentinel asks this worker to stop."""
+    client = OpenAI(api_key=api_key, base_url=BASE_URL, timeout=60.0)
 
-    This is the important bulk pattern: submit a small initial batch, then
-    submit one new job each time one finishes. The executor never receives the
-    whole dataset at once.
+    while True:
+        job = job_queue.get()
+        try:
+            if job is None:
+                return
+
+            job_id, label = run_one_job_with_retries(client, model_name, job)
+            result_queue.put(JobResult(job_id=job_id, label=label))
+        except Exception as exc:
+            job_id = job.job_id if job is not None else "unknown"
+            result_queue.put(JobResult(job_id=job_id, error=exc))
+        finally:
+            job_queue.task_done()
+
+
+def result_printer(result_queue: Queue[JobResult | None], counts: dict[str, int]) -> None:
+    """Print results as they finish so they do not build up in memory."""
+    while True:
+        result = result_queue.get()
+        try:
+            if result is None:
+                return
+
+            if result.error is None:
+                counts["completed"] += 1
+                print(f"{result.job_id}: {result.label}")
+            else:
+                counts["failed"] += 1
+                print(f"{result.job_id}: failed: {result.error}")
+        finally:
+            result_queue.task_done()
+
+
+def process_jobs(api_key: str, model_name: str, jobs: Iterable[Job], num_workers: int) -> int:
+    """Process a job iterator with bounded memory.
+
+    This is the important bulk pattern:
+
+    - the producer reads one job at a time;
+    - job_queue.maxsize prevents the producer from outrunning the workers;
+    - workers make API calls and retry politely;
+    - the result printer consumes results as they finish.
     """
-    job_iterator = iter(jobs)
-    completed_count = 0
+    job_queue: Queue[Job | None] = Queue(maxsize=max(1, num_workers * 2))
+    result_queue: Queue[JobResult | None] = Queue()
+    counts = {"completed": 0, "failed": 0}
 
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        pending: dict[Future[tuple[str, str]], Job] = {}
+    workers = [
+        Thread(
+            target=worker_loop,
+            args=(api_key, model_name, job_queue, result_queue),
+            name=f"som-bulk-worker-{worker_number}",
+        )
+        for worker_number in range(1, num_workers + 1)
+    ]
+    printer = Thread(target=result_printer, args=(result_queue, counts), name="som-bulk-printer")
 
-        def submit_next_job() -> bool:
-            try:
-                job = next(job_iterator)
-            except StopIteration:
-                return False
+    for worker in workers:
+        worker.start()
+    printer.start()
 
-            future = executor.submit(run_one_job_with_retries, client, model_name, job)
-            pending[future] = job
-            return True
+    submitted_count = 0
+    try:
+        for job in jobs:
+            job_queue.put(job)
+            submitted_count += 1
+            # Optional rate limit hook for strict quotas:
+            # time.sleep(seconds_between_submissions)
+    finally:
+        for _ in workers:
+            job_queue.put(None)
 
-        for _ in range(num_workers):
-            if not submit_next_job():
-                break
+    job_queue.join()
+    for worker in workers:
+        worker.join()
 
-        while pending:
-            finished_futures, _ = wait(pending, return_when=FIRST_COMPLETED)
+    result_queue.put(None)
+    result_queue.join()
+    printer.join()
 
-            for future in finished_futures:
-                pending.pop(future)
-                job_id, label = future.result()
-                completed_count += 1
-                print(f"{job_id}: {label}")
-                submit_next_job()
+    if counts["failed"]:
+        raise RuntimeError(f"{counts['failed']} job(s) failed")
 
-    return completed_count
+    return submitted_count
 
 
 def main() -> None:
@@ -244,7 +302,7 @@ def main() -> None:
     num_workers = max(1, NUM_WORKERS)
     print(f"Running with up to {num_workers} worker(s) on {model_name}")
 
-    completed_count = process_jobs(client, model_name, iter_jobs(), num_workers)
+    completed_count = process_jobs(api_key, model_name, iter_jobs(), num_workers)
     print(f"\nDone: {completed_count} job(s)")
 
 
