@@ -30,7 +30,7 @@ from threading import Thread
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
 BASE_URL = os.environ.get("SOM_LLM_BASE_URL", "https://api.som.chat/v1")
-NUM_WORKERS = int(os.environ.get("SOM_LLM_BULK_WORKERS", "2"))
+NUM_WORKERS = int(os.environ.get("SOM_LLM_BULK_WORKERS", "8"))
 MAX_ATTEMPTS_PER_JOB = 6
 MAX_WAIT_SECONDS = 60.0
 RETRYABLE_STATUS_CODES = {429, 503, 529}
@@ -50,12 +50,84 @@ class JobResult:
 
 
 SAMPLE_JOBS = [
-    Job("paper-001", "A study of market power, markups, and productivity in manufacturing."),
-    Job("paper-002", "Evidence on student peer effects from randomized classroom assignment."),
-    Job("paper-003", "A field experiment on email reminders and appointment attendance."),
-    Job("paper-004", "An analysis of venture capital contracts and founder bargaining power."),
+    Job(
+        "paper-001",
+        "A study of market power, markups, and productivity in manufacturing.",
+    ),
+    Job(
+        "paper-002",
+        "Evidence on student peer effects from randomized classroom assignment.",
+    ),
+    Job(
+        "paper-003", "A field experiment on email reminders and appointment attendance."
+    ),
+    Job(
+        "paper-004",
+        "An analysis of venture capital contracts and founder bargaining power.",
+    ),
     Job("paper-005", "Local labor market effects of a new commuter rail station."),
-    Job("paper-006", "The role of information frictions in household refinancing decisions."),
+    Job(
+        "paper-006",
+        "The role of information frictions in household refinancing decisions.",
+    ),
+    Job("paper-007", "Minimum wage changes and employment in small restaurants."),
+    Job("paper-008", "Hospital mergers, negotiated prices, and patient outcomes."),
+    Job("paper-009", "Climate risk disclosure and municipal bond spreads."),
+    Job("paper-010", "The impact of broadband access on rural entrepreneurship."),
+    Job("paper-011", "Auction design for allocating airport landing slots."),
+    Job("paper-012", "Teacher value-added measures and long-run student earnings."),
+    Job("paper-013", "Cash transfer timing and household consumption smoothing."),
+    Job("paper-014", "Network effects in the adoption of mobile payment platforms."),
+    Job("paper-015", "Tax salience and consumer responses to sales tax holidays."),
+    Job("paper-016", "Machine learning methods for predicting loan default."),
+    Job("paper-017", "The effect of zoning reform on housing supply and rents."),
+    Job("paper-018", "Peer referrals and worker productivity in call centers."),
+    Job("paper-019", "Carbon pricing, energy intensity, and firm competitiveness."),
+    Job("paper-020", "Executive compensation contracts after shareholder lawsuits."),
+    Job("paper-021", "Early childhood interventions and adult health outcomes."),
+    Job("paper-022", "Import competition and innovation by domestic firms."),
+    Job("paper-023", "Algorithmic pricing and tacit collusion in online markets."),
+    Job("paper-024", "Retirement plan defaults and employee savings behavior."),
+    Job("paper-025", "Air pollution alerts and avoidance behavior by commuters."),
+    Job("paper-026", "College major choice under uncertainty about labor demand."),
+    Job("paper-027", "Supply chain disruptions and inventory management after shocks."),
+    Job("paper-028", "Political advertising, turnout, and persuasion in local races."),
+    Job("paper-029", "Childcare subsidies and maternal labor force participation."),
+    Job("paper-030", "Bank capital regulation and credit supply to small firms."),
+    Job("paper-031", "Search frictions in online labor platforms."),
+    Job("paper-032", "Food labeling rules and consumer nutrition choices."),
+    Job("paper-033", "Venture capital syndication networks and startup survival."),
+    Job("paper-034", "Remote work, commuting time, and urban office demand."),
+    Job("paper-035", "Dynamic pricing for ride-hailing during bad weather."),
+    Job("paper-036", "School accountability rules and teacher turnover."),
+    Job("paper-037", "Mortgage refinancing mistakes among high-FICO borrowers."),
+    Job("paper-038", "Public transit expansions and neighborhood business formation."),
+    Job("paper-039", "Information campaigns and vaccine appointment take-up."),
+    Job("paper-040", "Trade credit terms and supplier bargaining power."),
+    Job("paper-041", "Patent thickets and entry barriers in medical devices."),
+    Job("paper-042", "Unemployment insurance generosity and job search duration."),
+    Job("paper-043", "Water scarcity, crop choice, and agricultural productivity."),
+    Job("paper-044", "Gender gaps in negotiation outcomes for MBA graduates."),
+    Job("paper-045", "Bank branch closures and access to credit in rural counties."),
+    Job("paper-046", "Online reviews and demand for independent hotels."),
+    Job("paper-047", "Privacy regulation and targeted advertising effectiveness."),
+    Job("paper-048", "Health insurance deductibles and preventive care utilization."),
+    Job("paper-049", "Industrial policy subsidies and electric vehicle supply chains."),
+    Job("paper-050", "Behavioral nudges for timely property tax payment."),
+    Job("paper-051", "Exchange rate pass-through into imported consumer goods."),
+    Job("paper-052", "Team diversity and product innovation in technology firms."),
+    Job("paper-053", "Court congestion and settlement behavior in civil litigation."),
+    Job("paper-054", "Dynamic incentives in salesforce compensation plans."),
+    Job("paper-055", "Public procurement scoring rules and bidder participation."),
+    Job("paper-056", "Student loan repayment plans and occupational choice."),
+    Job("paper-057", "Social media exposure and demand for financial advice."),
+    Job("paper-058", "Hospital staffing ratios and emergency department wait times."),
+    Job("paper-059", "Gig worker scheduling flexibility and earnings volatility."),
+    Job("paper-060", "Firm responses to ransomware risk and cyber insurance pricing."),
+    Job("paper-061", "Weather derivatives and risk management by energy utilities."),
+    Job("paper-062", "Mentorship programs and promotion rates for junior employees."),
+    Job("paper-063", "Housing wealth shocks and small business formation."),
+    Job("paper-064", "Central bank communication and inflation expectations."),
 ]
 
 
@@ -114,7 +186,9 @@ def fallback_backoff_seconds(attempt_number: int) -> float:
     return min(base_seconds + jitter_seconds, MAX_WAIT_SECONDS)
 
 
-def retry_delay_seconds(attempt_number: int, headers: Mapping[str, str] | None = None) -> float:
+def retry_delay_seconds(
+    attempt_number: int, headers: Mapping[str, str] | None = None
+) -> float:
     """Prefer server Retry-After; otherwise use local exponential backoff."""
     if headers:
         retry_after_seconds = parse_retry_after_header(headers)
@@ -167,7 +241,9 @@ def run_one_job_once(client: OpenAI, model_name: str, job: Job) -> str:
     return (response.choices[0].message.content or "").strip()
 
 
-def run_one_job_with_retries(client: OpenAI, model_name: str, job: Job) -> tuple[str, str]:
+def run_one_job_with_retries(
+    client: OpenAI, model_name: str, job: Job
+) -> tuple[str, str]:
     """Run one job, retrying politely when the service says to try later."""
     for attempt_number in range(1, MAX_ATTEMPTS_PER_JOB + 1):
         try:
@@ -178,7 +254,9 @@ def run_one_job_with_retries(client: OpenAI, model_name: str, job: Job) -> tuple
                 raise
 
             if scheduler_headers := safe_scheduler_headers(exc.response.headers):
-                print(f"{job.job_id}: retryable HTTP {exc.status_code}; {scheduler_headers}")
+                print(
+                    f"{job.job_id}: retryable HTTP {exc.status_code}; {scheduler_headers}"
+                )
 
             wait_seconds = retry_delay_seconds(attempt_number, exc.response.headers)
         except (APIConnectionError, APITimeoutError):
@@ -186,9 +264,13 @@ def run_one_job_with_retries(client: OpenAI, model_name: str, job: Job) -> tuple
             wait_seconds = retry_delay_seconds(attempt_number)
 
         if attempt_number == MAX_ATTEMPTS_PER_JOB:
-            raise RuntimeError(f"{job.job_id} failed after {MAX_ATTEMPTS_PER_JOB} attempts")
+            raise RuntimeError(
+                f"{job.job_id} failed after {MAX_ATTEMPTS_PER_JOB} attempts"
+            )
 
-        print(f"{job.job_id}: waiting {wait_seconds:.1f}s before attempt {attempt_number + 1}")
+        print(
+            f"{job.job_id}: waiting {wait_seconds:.1f}s before attempt {attempt_number + 1}"
+        )
         time.sleep(wait_seconds)
 
     raise AssertionError("unreachable")
@@ -218,7 +300,9 @@ def worker_loop(
             job_queue.task_done()
 
 
-def result_printer(result_queue: Queue[JobResult | None], counts: dict[str, int]) -> None:
+def result_printer(
+    result_queue: Queue[JobResult | None], counts: dict[str, int]
+) -> None:
     """Print results as they finish so they do not build up in memory."""
     while True:
         result = result_queue.get()
@@ -236,7 +320,9 @@ def result_printer(result_queue: Queue[JobResult | None], counts: dict[str, int]
             result_queue.task_done()
 
 
-def process_jobs(api_key: str, model_name: str, jobs: Iterable[Job], num_workers: int) -> int:
+def process_jobs(
+    api_key: str, model_name: str, jobs: Iterable[Job], num_workers: int
+) -> int:
     """Process a job iterator with bounded memory.
 
     This is the important bulk pattern:
@@ -258,7 +344,9 @@ def process_jobs(api_key: str, model_name: str, jobs: Iterable[Job], num_workers
         )
         for worker_number in range(1, num_workers + 1)
     ]
-    printer = Thread(target=result_printer, args=(result_queue, counts), name="som-bulk-printer")
+    printer = Thread(
+        target=result_printer, args=(result_queue, counts), name="som-bulk-printer"
+    )
 
     for worker in workers:
         worker.start()
