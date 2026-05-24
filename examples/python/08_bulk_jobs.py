@@ -21,8 +21,8 @@ import email.utils
 import os
 import random
 import time
-from collections.abc import Mapping
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections.abc import Iterable, Iterator, Mapping
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -49,6 +49,15 @@ SAMPLE_JOBS = [
     Job("paper-005", "Local labor market effects of a new commuter rail station."),
     Job("paper-006", "The role of information frictions in household refinancing decisions."),
 ]
+
+
+def iter_jobs() -> Iterator[Job]:
+    """Yield jobs one at a time.
+
+    In real bulk work, replace this with a CSV reader, database cursor, or
+    other iterator. Do not load a huge dataset into memory first.
+    """
+    yield from SAMPLE_JOBS
 
 
 def get_model_name(client: OpenAI) -> str:
@@ -177,6 +186,51 @@ def run_one_job_with_retries(client: OpenAI, model_name: str, job: Job) -> tuple
     raise AssertionError("unreachable")
 
 
+def process_jobs(
+    client: OpenAI,
+    model_name: str,
+    jobs: Iterable[Job],
+    num_workers: int,
+) -> int:
+    """Process jobs from an iterator while keeping only a few in flight.
+
+    This is the important bulk pattern: submit a small initial batch, then
+    submit one new job each time one finishes. The executor never receives the
+    whole dataset at once.
+    """
+    job_iterator = iter(jobs)
+    completed_count = 0
+
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        pending: dict[Future[tuple[str, str]], Job] = {}
+
+        def submit_next_job() -> bool:
+            try:
+                job = next(job_iterator)
+            except StopIteration:
+                return False
+
+            future = executor.submit(run_one_job_with_retries, client, model_name, job)
+            pending[future] = job
+            return True
+
+        for _ in range(num_workers):
+            if not submit_next_job():
+                break
+
+        while pending:
+            finished_futures, _ = wait(pending, return_when=FIRST_COMPLETED)
+
+            for future in finished_futures:
+                pending.pop(future)
+                job_id, label = future.result()
+                completed_count += 1
+                print(f"{job_id}: {label}")
+                submit_next_job()
+
+    return completed_count
+
+
 def main() -> None:
     api_key = os.environ.get("SOM_LLM_KEY")
     if not api_key:
@@ -187,24 +241,11 @@ def main() -> None:
 
     # Keep this small. For real jobs, start low and increase only if the
     # service stays responsive.
-    num_workers = max(1, min(NUM_WORKERS, len(SAMPLE_JOBS)))
-    print(f"Running {len(SAMPLE_JOBS)} jobs with {num_workers} worker(s) on {model_name}")
+    num_workers = max(1, NUM_WORKERS)
+    print(f"Running with up to {num_workers} worker(s) on {model_name}")
 
-    results: dict[str, str] = {}
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = [
-            executor.submit(run_one_job_with_retries, client, model_name, job)
-            for job in SAMPLE_JOBS
-        ]
-
-        for future in as_completed(futures):
-            job_id, label = future.result()
-            results[job_id] = label
-            print(f"{job_id}: {label}")
-
-    print("\nResults")
-    for job in SAMPLE_JOBS:
-        print(f"{job.job_id}: {results[job.job_id]}")
+    completed_count = process_jobs(client, model_name, iter_jobs(), num_workers)
+    print(f"\nDone: {completed_count} job(s)")
 
 
 if __name__ == "__main__":
