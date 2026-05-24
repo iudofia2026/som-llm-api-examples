@@ -4,11 +4,15 @@
 # dependencies = ["openai"]
 # ///
 
-"""Run a small batch politely with Retry-After and exponential backoff.
+"""Run many independent jobs without hammering the API.
 
-This is the pattern to copy when you have many independent jobs. It keeps
-concurrency bounded, honors SOM scheduler Retry-After guidance when present,
-and falls back to capped exponential backoff for transient downtime.
+Copy this pattern for bulk work:
+
+1. Limit concurrency with a small number of worker threads.
+2. If the server sends Retry-After, wait that long before retrying.
+3. If there is a timeout or connection problem, use exponential backoff.
+
+The default is intentionally gentle: two workers.
 """
 
 from __future__ import annotations
@@ -25,19 +29,19 @@ from datetime import datetime, timezone
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
 BASE_URL = os.environ.get("SOM_LLM_BASE_URL", "https://api.som.chat/v1")
-MAX_WORKERS = int(os.environ.get("SOM_LLM_BULK_WORKERS", "2"))
-MAX_ATTEMPTS = 6
-MAX_SLEEP_SECONDS = 60.0
+NUM_WORKERS = int(os.environ.get("SOM_LLM_BULK_WORKERS", "2"))
+MAX_ATTEMPTS_PER_JOB = 6
+MAX_WAIT_SECONDS = 60.0
 RETRYABLE_STATUS_CODES = {429, 503, 529}
 
 
 @dataclass(frozen=True)
 class Job:
-    id: str
+    job_id: str
     text: str
 
 
-JOBS = [
+SAMPLE_JOBS = [
     Job("paper-001", "A study of market power, markups, and productivity in manufacturing."),
     Job("paper-002", "Evidence on student peer effects from randomized classroom assignment."),
     Job("paper-003", "A field experiment on email reminders and appointment attendance."),
@@ -47,43 +51,30 @@ JOBS = [
 ]
 
 
-class RetryableBackpressure(Exception):
-    """The API returned a retryable status and optional scheduler headers."""
+def get_model_name(client: OpenAI) -> str:
+    """Use SOM_LLM_MODEL if set; otherwise choose the first advertised model."""
+    if model_name := os.environ.get("SOM_LLM_MODEL"):
+        return model_name
 
-    def __init__(self, status_code: int, headers: Mapping[str, str]):
-        self.status_code = status_code
-        self.headers = headers
-        super().__init__(f"retryable HTTP {status_code}")
-
-
-class RetryableDowntime(Exception):
-    """The request failed before an HTTP response was available."""
-
-
-def current_model(client: OpenAI) -> str:
-    """Return SOM_LLM_MODEL, or choose the first model from /v1/models."""
-    if model := os.environ.get("SOM_LLM_MODEL"):
-        return model
-
-    models = [model.id for model in client.models.list().data]
-    if not models:
+    model_names = [model.id for model in client.models.list().data]
+    if not model_names:
         raise SystemExit("No models returned from /v1/models")
-    return models[0]
+    return model_names[0]
 
 
-def no_thinking() -> dict:
+def disable_thinking() -> dict:
     """Qwen chat-template setting for short direct answers."""
     return {"chat_template_kwargs": {"enable_thinking": False}}
 
 
-def retry_after_seconds(headers: Mapping[str, str]) -> float | None:
-    """Parse Retry-After if present; return seconds, capped."""
+def parse_retry_after_header(headers: Mapping[str, str]) -> float | None:
+    """Return Retry-After seconds if the header is present and parseable."""
     retry_after = headers.get("retry-after")
     if not retry_after:
         return None
 
     try:
-        return min(float(retry_after), MAX_SLEEP_SECONDS)
+        return min(float(retry_after), MAX_WAIT_SECONDS)
     except ValueError:
         pass
 
@@ -95,44 +86,47 @@ def retry_after_seconds(headers: Mapping[str, str]) -> float | None:
     if retry_at.tzinfo is None:
         retry_at = retry_at.replace(tzinfo=timezone.utc)
 
-    delay = (retry_at - datetime.now(timezone.utc)).total_seconds()
-    return min(max(delay, 0.0), MAX_SLEEP_SECONDS)
+    seconds = (retry_at - datetime.now(timezone.utc)).total_seconds()
+    return min(max(seconds, 0.0), MAX_WAIT_SECONDS)
 
 
-def exponential_backoff_seconds(attempt: int) -> float:
-    """Capped exponential backoff with jitter for downtime/no-header cases."""
-    base = min(2 ** (attempt - 1), MAX_SLEEP_SECONDS)
-    jitter = random.uniform(0, min(base * 0.25, 2.0))
-    return min(base + jitter, MAX_SLEEP_SECONDS)
+def fallback_backoff_seconds(attempt_number: int) -> float:
+    """Exponential backoff with a little jitter."""
+    base_seconds = min(2 ** (attempt_number - 1), MAX_WAIT_SECONDS)
+    jitter_seconds = random.uniform(0, min(base_seconds * 0.25, 2.0))
+    return min(base_seconds + jitter_seconds, MAX_WAIT_SECONDS)
 
 
-def delay_for_retry(attempt: int, headers: Mapping[str, str] | None = None) -> float:
-    """Prefer server Retry-After; otherwise use exponential backoff."""
+def retry_delay_seconds(attempt_number: int, headers: Mapping[str, str] | None = None) -> float:
+    """Prefer server Retry-After; otherwise use local exponential backoff."""
     if headers:
-        retry_after = retry_after_seconds(headers)
-        if retry_after is not None:
-            return retry_after
+        retry_after_seconds = parse_retry_after_header(headers)
+        if retry_after_seconds is not None:
+            return retry_after_seconds
 
-    return exponential_backoff_seconds(attempt)
+    return fallback_backoff_seconds(attempt_number)
 
 
-def scheduler_summary(headers: Mapping[str, str]) -> str:
-    """Return safe SOM scheduler metadata for logs/debugging."""
-    names = [
+def safe_scheduler_headers(headers: Mapping[str, str]) -> str:
+    """Return safe SOM scheduler headers for debugging.
+
+    These headers do not contain prompts, responses, API keys, or request bodies.
+    """
+    header_names = [
         "x-som-admission-decision",
         "x-som-reject-reason",
         "x-som-queue-wait-ms",
         "x-som-queue-position",
         "x-som-scheduler-policy",
     ]
-    parts = [f"{name}={headers[name]}" for name in names if name in headers]
+    parts = [f"{name}={headers[name]}" for name in header_names if name in headers]
     return "; ".join(parts)
 
 
-def classify_job(client: OpenAI, model: str, job: Job) -> str:
-    """Classify one job and return a short label."""
-    raw_response = client.chat.completions.with_raw_response.create(
-        model=model,
+def run_one_job_once(client: OpenAI, model_name: str, job: Job) -> str:
+    """Send one request and return the model's label."""
+    response_with_headers = client.chat.completions.with_raw_response.create(
+        model=model_name,
         messages=[
             {
                 "role": "system",
@@ -146,43 +140,39 @@ def classify_job(client: OpenAI, model: str, job: Job) -> str:
         ],
         temperature=0,
         max_tokens=32,
-        extra_body=no_thinking(),
+        extra_body=disable_thinking(),
     )
 
-    if summary := scheduler_summary(raw_response.headers):
-        print(f"{job.id}: {summary}")
+    if scheduler_headers := safe_scheduler_headers(response_with_headers.headers):
+        print(f"{job.job_id}: {scheduler_headers}")
 
-    response = raw_response.parse()
+    response = response_with_headers.parse()
     return (response.choices[0].message.content or "").strip()
 
 
-def classify_with_retries(client: OpenAI, model: str, job: Job) -> tuple[str, str]:
-    """Run one job, retrying politely for backpressure or transient downtime."""
-    for attempt in range(1, MAX_ATTEMPTS + 1):
+def run_one_job_with_retries(client: OpenAI, model_name: str, job: Job) -> tuple[str, str]:
+    """Run one job, retrying politely when the service says to try later."""
+    for attempt_number in range(1, MAX_ATTEMPTS_PER_JOB + 1):
         try:
-            return job.id, classify_job(client, model, job)
+            label = run_one_job_once(client, model_name, job)
+            return job.job_id, label
         except APIStatusError as exc:
             if exc.status_code not in RETRYABLE_STATUS_CODES:
                 raise
 
-            if summary := scheduler_summary(exc.response.headers):
-                print(f"{job.id}: retryable HTTP {exc.status_code}; {summary}")
+            if scheduler_headers := safe_scheduler_headers(exc.response.headers):
+                print(f"{job.job_id}: retryable HTTP {exc.status_code}; {scheduler_headers}")
 
-            delay = delay_for_retry(attempt, exc.response.headers)
-        except (APIConnectionError, APITimeoutError) as exc:
-            # No reliable HTTP response: use exponential backoff. This covers
-            # network blips, restarts, and other transient downtime.
-            if attempt == MAX_ATTEMPTS:
-                raise RetryableDowntime(f"{job.id} failed after downtime retries") from exc
+            wait_seconds = retry_delay_seconds(attempt_number, exc.response.headers)
+        except (APIConnectionError, APITimeoutError):
+            print(f"{job.job_id}: transient connection issue")
+            wait_seconds = retry_delay_seconds(attempt_number)
 
-            delay = delay_for_retry(attempt)
-            print(f"{job.id}: transient connection issue; retrying")
+        if attempt_number == MAX_ATTEMPTS_PER_JOB:
+            raise RuntimeError(f"{job.job_id} failed after {MAX_ATTEMPTS_PER_JOB} attempts")
 
-        if attempt == MAX_ATTEMPTS:
-            raise RuntimeError(f"{job.id} still busy after {MAX_ATTEMPTS} attempts")
-
-        print(f"{job.id}: sleeping {delay:.1f}s before attempt {attempt + 1}")
-        time.sleep(delay)
+        print(f"{job.job_id}: waiting {wait_seconds:.1f}s before attempt {attempt_number + 1}")
+        time.sleep(wait_seconds)
 
     raise AssertionError("unreachable")
 
@@ -193,16 +183,19 @@ def main() -> None:
         raise SystemExit("Set SOM_LLM_KEY first")
 
     client = OpenAI(api_key=api_key, base_url=BASE_URL, timeout=60.0)
-    model = current_model(client)
+    model_name = get_model_name(client)
 
-    # Keep this small. For real jobs, start with low concurrency and increase
-    # only if the service remains responsive.
-    workers = max(1, min(MAX_WORKERS, len(JOBS)))
-    print(f"Running {len(JOBS)} jobs with {workers} worker(s) on {model}")
+    # Keep this small. For real jobs, start low and increase only if the
+    # service stays responsive.
+    num_workers = max(1, min(NUM_WORKERS, len(SAMPLE_JOBS)))
+    print(f"Running {len(SAMPLE_JOBS)} jobs with {num_workers} worker(s) on {model_name}")
 
     results: dict[str, str] = {}
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(classify_with_retries, client, model, job) for job in JOBS]
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        futures = [
+            executor.submit(run_one_job_with_retries, client, model_name, job)
+            for job in SAMPLE_JOBS
+        ]
 
         for future in as_completed(futures):
             job_id, label = future.result()
@@ -210,8 +203,8 @@ def main() -> None:
             print(f"{job_id}: {label}")
 
     print("\nResults")
-    for job in JOBS:
-        print(f"{job.id}: {results[job.id]}")
+    for job in SAMPLE_JOBS:
+        print(f"{job.job_id}: {results[job.job_id]}")
 
 
 if __name__ == "__main__":
