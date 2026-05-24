@@ -22,6 +22,7 @@ Run any example directly. The files are intentionally standalone, so you can cop
 ./05_extract_json.py
 ./06_thinking.py
 ./07_pydanticai_agents.py
+./08_bulk_jobs.py
 ```
 
 ## What each example shows
@@ -33,6 +34,7 @@ Run any example directly. The files are intentionally standalone, so you can cop
 - `05_extract_json.py` — typed JSON extraction validated by Pydantic.
 - `06_thinking.py` — enabling Qwen thinking for multi-step reasoning.
 - `07_pydanticai_agents.py` — a two-agent PydanticAI workflow with local tool calls.
+- `08_bulk_jobs.py` — polite bulk jobs with bounded concurrency, `Retry-After`, and exponential backoff.
 
 For short classification/extraction jobs, the examples disable thinking:
 
@@ -41,6 +43,18 @@ extra_body={"chat_template_kwargs": {"enable_thinking": False}}
 ```
 
 For harder reasoning, turn thinking on and give the model enough `max_tokens` for reasoning plus the final answer.
+
+## Backpressure and polite retries
+
+`08_bulk_jobs.py` shows how to run a small batch without increasing load when the service is busy or temporarily unavailable:
+
+- `429` means a caller/key/user policy or queue limit was hit.
+- OpenAI-compatible overloads use `503`.
+- Anthropic-compatible overloads use `529 overloaded_error`.
+- Keep concurrency bounded; the example defaults to two workers.
+- Always honor `Retry-After` when the server sends it.
+- Use capped exponential backoff with jitter for connection errors, timeouts, or retryable responses without `Retry-After`.
+- `X-SOM-Admission-Decision`, `X-SOM-Reject-Reason`, and `X-SOM-Queue-Wait-Ms` are safe advisory metadata for logging/debugging.
 
 ## Agent workflow example
 

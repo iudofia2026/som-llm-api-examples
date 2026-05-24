@@ -36,6 +36,7 @@ cd examples/python
 ./05_extract_json.py
 ./06_thinking.py
 ./07_pydanticai_agents.py
+./08_bulk_jobs.py
 ```
 
 Examples included:
@@ -49,6 +50,11 @@ Examples included:
 | `05_extract_json.py` | JSON extraction + Pydantic validation |
 | `06_thinking.py` | Qwen thinking mode for harder reasoning |
 | `07_pydanticai_agents.py` | two-agent PydanticAI workflow with local tools |
+| `08_bulk_jobs.py` | polite bulk jobs with bounded concurrency, `Retry-After`, and exponential backoff |
+
+## Backpressure etiquette
+
+When the service is busy, retryable responses include `Retry-After` plus advisory `X-SOM-*` scheduler headers. Use `examples/python/08_bulk_jobs.py` as the starting point for bulk clients that should keep concurrency bounded, honor `Retry-After`, and fall back to exponential backoff during transient downtime.
 
 ## Agent CLI setup
 
