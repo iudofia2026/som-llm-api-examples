@@ -6,10 +6,10 @@ Set your key once:
 export SOM_LLM_KEY=sk-som-...
 ```
 
-Optional: pin a model. If omitted, the examples ask `/v1/models` and use the first advertised model.
+Optional: pin a model. If omitted, the examples ask `/v1/models` and use the first advertised model. Prefer discovering the current model instead of hardcoding one:
 
 ```sh
-export SOM_LLM_MODEL=Qwen3.5-122B-A10B-FP8
+export SOM_LLM_MODEL="$(../../scripts/som-current-model.py --purpose general)"
 ```
 
 Run any example directly. The files are intentionally standalone, so you can copy one script into your own project without importing a local helper package:
@@ -51,7 +51,7 @@ For harder reasoning, turn thinking on and give the model enough `max_tokens` fo
 - `429` means a caller/key/user policy or queue limit was hit.
 - OpenAI-compatible overloads use `503`.
 - Anthropic-compatible overloads use `529 overloaded_error`.
-- Keep concurrency bounded; the example defaults to two workers.
+- Keep concurrency bounded; the example defaults to eight workers and can be tuned with `SOM_LLM_BULK_WORKERS`.
 - Always honor `Retry-After` when the server sends it.
 - Use capped exponential backoff with jitter for connection errors, timeouts, or retryable responses without `Retry-After`.
 - `X-SOM-Admission-Decision`, `X-SOM-Reject-Reason`, and `X-SOM-Queue-Wait-Ms` are safe advisory metadata for logging/debugging.

@@ -12,7 +12,7 @@ Copy this pattern for bulk work:
 2. If the server sends Retry-After, wait that long before retrying.
 3. If there is a timeout or connection problem, use exponential backoff.
 
-The default is intentionally gentle: two workers.
+The default is intentionally bounded: eight workers. Tune with SOM_LLM_BULK_WORKERS.
 """
 
 from __future__ import annotations
