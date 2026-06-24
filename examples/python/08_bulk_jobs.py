@@ -9,8 +9,10 @@
 Copy this pattern for bulk work:
 
 1. Limit concurrency with a small number of worker threads.
-2. If the server sends Retry-After, wait that long before retrying.
-3. If there is a timeout or connection problem, use exponential backoff.
+2. Set max_tokens intentionally for each job/extraction field.
+3. If the server sends Retry-After, wait that long before retrying.
+4. If there is a timeout or connection problem, use exponential backoff.
+5. Persist real outputs in your own job code and retry only missing/truncated work.
 
 The default is intentionally bounded: eight workers. Tune with SOM_LLM_BULK_WORKERS.
 """
@@ -209,6 +211,10 @@ def safe_scheduler_headers(headers: Mapping[str, str]) -> str:
         "x-som-queue-wait-ms",
         "x-som-queue-position",
         "x-som-scheduler-policy",
+        "x-som-output-cap",
+        "x-som-request-shape",
+        "x-som-estimated-cost",
+        "x-som-policy-tier",
     ]
     parts = [f"{name}={headers[name]}" for name in header_names if name in headers]
     return "; ".join(parts)
@@ -230,6 +236,9 @@ def run_one_job_once(client: OpenAI, model_name: str, job: Job) -> str:
             {"role": "user", "content": job.text},
         ],
         temperature=0,
+        # Keep this tight. A one-word label should not reserve thousands of
+        # output tokens. For larger extraction jobs, tune caps per field and
+        # audit finish_reason=length before increasing them globally.
         max_tokens=32,
         extra_body=disable_thinking(),
     )

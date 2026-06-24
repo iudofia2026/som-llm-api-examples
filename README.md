@@ -37,6 +37,7 @@ cd examples/python
 ./06_thinking.py
 ./07_pydanticai_agents.py
 ./08_bulk_jobs.py
+./09_audit_outputs.py ./outputs
 ```
 
 Examples included:
@@ -51,10 +52,13 @@ Examples included:
 | `06_thinking.py` | Qwen thinking mode for harder reasoning |
 | `07_pydanticai_agents.py` | two-agent PydanticAI workflow with local tools |
 | `08_bulk_jobs.py` | polite bulk jobs with bounded concurrency, `Retry-After`, and exponential backoff |
+| `09_audit_outputs.py` | scan saved JSON sidecars for truncation and token usage |
 
 ## Backpressure etiquette
 
 When the service is busy, retryable responses include `Retry-After` plus advisory `X-SOM-*` scheduler headers. Use `examples/python/08_bulk_jobs.py` as the starting point for bulk clients that should keep concurrency bounded, honor `Retry-After`, and fall back to exponential backoff during transient downtime.
+
+For bulk extraction, also read [`docs/workload-shaping.md`](docs/workload-shaping.md). The short version: set `max_tokens` intentionally, keep routine extraction caps modest, disable thinking for mechanical JSON extraction, persist sidecars, and retry only missing or truncated work.
 
 ## Agent CLI setup
 
@@ -83,3 +87,4 @@ For extraction/classification:
 - Consider two passes for rich documents: free-text notes first, then JSON conversion.
 - Use strict JSON Schema only when every array/string is bounded with `maxItems`, `maxLength`, enums, or numeric bounds.
 - Validate responses client-side when correctness matters.
+- Start with modest per-field `max_tokens`, measure `finish_reason=length`, and raise caps only for fields that actually truncate.
