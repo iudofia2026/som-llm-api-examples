@@ -38,6 +38,7 @@ cd examples/python
 ./07_pydanticai_agents.py
 ./08_bulk_jobs.py
 ./09_audit_outputs.py ./outputs
+./10_logprobs.py
 ```
 
 Examples included:
@@ -53,6 +54,7 @@ Examples included:
 | `07_pydanticai_agents.py` | two-agent PydanticAI workflow with local tools |
 | `08_bulk_jobs.py` | polite bulk jobs with bounded concurrency, `Retry-After`, and exponential backoff |
 | `09_audit_outputs.py` | scan saved JSON sidecars for truncation and token usage |
+| `10_logprobs.py` | token probabilities and likely alternatives for classification confidence |
 
 ## Backpressure etiquette
 

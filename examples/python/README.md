@@ -24,6 +24,7 @@ Run any example directly. The files are intentionally standalone, so you can cop
 ./07_pydanticai_agents.py
 ./08_bulk_jobs.py
 ./09_audit_outputs.py ./outputs
+./10_logprobs.py
 ```
 
 ## What each example shows
@@ -37,6 +38,18 @@ Run any example directly. The files are intentionally standalone, so you can cop
 - `07_pydanticai_agents.py` — a two-agent PydanticAI workflow with local tool calls.
 - `08_bulk_jobs.py` — polite bulk jobs with bounded concurrency, `Retry-After`, and exponential backoff.
 - `09_audit_outputs.py` — scan saved JSON sidecars for truncation and token usage.
+- `10_logprobs.py` — inspect token probabilities and likely alternatives for classification confidence.
+
+## Token probabilities
+
+`10_logprobs.py` requests `logprobs=True` and five alternatives per generated
+token with `top_logprobs=5`. The API accepts `top_logprobs` values from 0 through
+20, and the field requires `logprobs=True`.
+
+Exponentiating a log probability converts it to a probability on a 0–1 scale.
+These values can support confidence thresholds, ranking, and prompt evaluation,
+but high model confidence does not guarantee a correct answer. Validate any
+threshold against examples from your own task.
 
 For short classification/extraction jobs, the examples disable thinking:
 
