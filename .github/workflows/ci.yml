@@ -1,8 +1,8 @@
 name: examples
 
+# MANUAL ONLY (2026-08-23). Auto triggers removed — iudofia2026 Actions quota.
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   check:
